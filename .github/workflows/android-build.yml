@@ -27,6 +27,9 @@ jobs:
       - name: Install SDK packages
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
+
       - name: Build debug and release APKs
         run: ./gradlew assembleDebug assembleRelease
 
