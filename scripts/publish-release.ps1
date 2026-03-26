@@ -5,6 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 
 function Get-NextPatchVersion {
     $latestTag = (git tag --list "v*" --sort=version:refname | Select-Object -Last 1)
@@ -22,6 +23,20 @@ function Get-NextPatchVersion {
     return "v$major.$minor.$patch"
 }
 
+function Invoke-Step {
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$Action,
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorMessage
+    )
+
+    & $Action
+    if ($LASTEXITCODE -ne 0) {
+        throw $ErrorMessage
+    }
+}
+
 if (-not $Version) {
     $Version = Get-NextPatchVersion
 }
@@ -37,17 +52,17 @@ if (Test-Path $javaHome) {
 }
 
 Write-Host "Building debug and release APKs..."
-.\gradlew.bat assembleDebug assembleRelease
+Invoke-Step -Action { .\gradlew.bat assembleDebug assembleRelease } -ErrorMessage "Gradle build failed."
 
 Write-Host "Staging changes..."
-git add -A
+Invoke-Step -Action { git add -A } -ErrorMessage "git add failed."
 
 $status = git status --short
 if (-not $status) {
     Write-Host "No changes to commit. Skipping commit."
 } else {
     Write-Host "Creating commit..."
-    git commit -m $CommitMessage
+    Invoke-Step -Action { git commit -m $CommitMessage } -ErrorMessage "git commit failed."
 }
 
 $currentBranch = git branch --show-current
@@ -56,7 +71,7 @@ if (-not $currentBranch) {
 }
 
 Write-Host "Pushing branch $currentBranch..."
-git push origin $currentBranch
+Invoke-Step -Action { git push origin $currentBranch } -ErrorMessage "git push failed."
 
 $existingTag = git tag --list $Version
 if ($existingTag) {
@@ -64,10 +79,10 @@ if ($existingTag) {
 }
 
 Write-Host "Creating tag $Version..."
-git tag $Version
+Invoke-Step -Action { git tag $Version } -ErrorMessage "git tag failed."
 
 Write-Host "Pushing tag $Version..."
-git push origin $Version
+Invoke-Step -Action { git push origin $Version } -ErrorMessage "git push tag failed."
 
 Write-Host ""
 Write-Host "Release triggered for $Version."
