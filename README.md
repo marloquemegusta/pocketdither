@@ -104,6 +104,34 @@ $adb="$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 & $adb shell am start -n com.arquimea.dithercamera/.MainActivity
 ```
 
+## Helper scripts
+
+Fast local install on a connected phone:
+
+```powershell
+.\scripts\install-debug.ps1
+```
+
+Publish a meaningful update with build, commit, push, and tag-triggered GitHub release:
+
+```powershell
+.\scripts\publish-release.ps1 -CommitMessage "Improve landscape controls and state persistence"
+```
+
+If you want to choose the version yourself:
+
+```powershell
+.\scripts\publish-release.ps1 -CommitMessage "..." -Version v1.0.1
+```
+
+The publish script:
+
+- builds `debug` and `release`
+- stages and commits all changes
+- pushes the current branch
+- creates and pushes a `vMAJOR.MINOR.PATCH` tag
+- triggers the `Android Release` GitHub Action that attaches APKs to the GitHub release
+
 ## GitHub Actions
 
 The repository includes a workflow that builds both debug and release artifacts on every push to `main` and on pull requests. The workflow uploads:

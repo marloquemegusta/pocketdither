@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.ActivityNotFoundException
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.DocumentsContract
@@ -70,6 +71,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +84,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
@@ -111,6 +114,8 @@ fun CameraScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
     val previewView = remember {
@@ -131,21 +136,25 @@ fun CameraScreen() {
     }
 
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var pixelSize by remember { mutableIntStateOf(6) }
-    var contrast by remember { mutableFloatStateOf(1.0f) }
-    var detail by remember { mutableFloatStateOf(1.0f) }
-    var pattern by remember { mutableStateOf(DitherPattern.BAYER_4X4) }
-    var colorProfile by remember { mutableStateOf(ColorProfile.FULL_COLOR) }
-    var exposureIndex by remember { mutableIntStateOf(0) }
+    var pixelSize by rememberSaveable { mutableIntStateOf(6) }
+    var contrast by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var detail by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var patternName by rememberSaveable { mutableStateOf(DitherPattern.BAYER_4X4.name) }
+    var colorProfileName by rememberSaveable { mutableStateOf(ColorProfile.FULL_COLOR.name) }
+    val pattern = remember(patternName) { DitherPattern.valueOf(patternName) }
+    val colorProfile = remember(colorProfileName) { ColorProfile.valueOf(colorProfileName) }
+    var exposureIndex by rememberSaveable { mutableIntStateOf(0) }
     var exposureRange by remember { mutableStateOf(Range(0, 0)) }
     var isCapturing by remember { mutableStateOf(false) }
     var hasPermission by remember { mutableStateOf(context.hasCameraPermission()) }
     var focusPoint by remember { mutableStateOf<Pair<Float, Float>?>(null) }
-    var lastSavedUri by remember { mutableStateOf<Uri?>(null) }
+    var lastSavedUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    val lastSavedUri = remember(lastSavedUriString) { lastSavedUriString?.let(Uri::parse) }
     var previewViewportSize by remember { mutableStateOf<Size?>(null) }
-    var activeControl by remember { mutableStateOf(CameraControlStripMode.PRESETS) }
-    var selectedPresetLabel by remember { mutableStateOf<String?>(null) }
-    var showInfoDialog by remember { mutableStateOf(false) }
+    var activeControlName by rememberSaveable { mutableStateOf(CameraControlStripMode.PRESETS.name) }
+    val activeControl = remember(activeControlName) { CameraControlStripMode.valueOf(activeControlName) }
+    var selectedPresetLabel by rememberSaveable { mutableStateOf<String?>(null) }
+    var showInfoDialog by rememberSaveable { mutableStateOf(false) }
     var isExposureSupported by remember { mutableStateOf(false) }
     var minZoomRatio by remember { mutableFloatStateOf(1.0f) }
     var maxZoomRatio by remember { mutableFloatStateOf(1.0f) }
@@ -164,9 +173,9 @@ fun CameraScreen() {
 
     fun applyPreset(preset: DitherPreset) {
         pixelSize = preset.settings.pixelSize
-        pattern = preset.settings.pattern
+        patternName = preset.settings.pattern.name
         contrast = preset.settings.contrast
-        colorProfile = preset.settings.colorProfile
+        colorProfileName = preset.settings.colorProfile.name
         detail = preset.settings.detail
         selectedPresetLabel = preset.label
     }
@@ -196,7 +205,7 @@ fun CameraScreen() {
     }
 
     LaunchedEffect(Unit) {
-        lastSavedUri = BitmapStorage.findLatestSavedImageUri(context)
+        lastSavedUriString = BitmapStorage.findLatestSavedImageUri(context)?.toString()
         if (!hasPermission) {
             permissionLauncher.launch(Manifest.permission.CAMERA)
         }
@@ -235,379 +244,239 @@ fun CameraScreen() {
             .fillMaxSize()
             .background(Color(0xFF04080D)),
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
-                    .padding(horizontal = 10.dp, vertical = 10.dp)
-                    .onSizeChanged { previewViewportSize = Size(it.width, it.height) }
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color.Black),
-            ) {
-                AndroidView(
-                    factory = { previewView },
-                    modifier = Modifier.fillMaxSize(),
+        if (isLandscape) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                CameraPreviewPane(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+                        .padding(start = 10.dp, top = 10.dp, bottom = 10.dp),
+                    previewView = previewView,
+                    previewBitmap = previewBitmap,
+                    hasPermission = hasPermission,
+                    focusPoint = focusPoint,
+                    density = density,
+                    onFocus = { x, y ->
+                        focusPoint = x to y
+                        val meteringPoint = previewView.meteringPointFactory.createPoint(x, y)
+                        val action = FocusMeteringAction.Builder(
+                            meteringPoint,
+                            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE,
+                        )
+                            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                            .build()
+                        cameraController.cameraControl?.startFocusAndMetering(action)
+                    },
+                    onSizeChanged = { previewViewportSize = Size(it.width, it.height) },
+                    onShowInfo = { showInfoDialog = true },
+                    minZoomRatio = minZoomRatio,
+                    maxZoomRatio = maxZoomRatio,
+                    selectedZoomRatio = selectedZoomRatio,
+                    onZoomSelected = { zoom ->
+                        cameraController.cameraControl?.setZoomRatio(zoom)
+                        selectedZoomRatio = zoom
+                    },
                 )
 
-                previewBitmap?.let { bitmap ->
-                    Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = "Preview procesada",
-                        contentScale = ContentScale.Crop,
-                        filterQuality = FilterQuality.None,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-
-                Box(
+                CameraControlsPane(
                     modifier = Modifier
+                        .width(340.dp)
                         .fillMaxSize()
-                        .pointerInput(hasPermission) {
-                            detectTapGestures { offset ->
-                                if (!hasPermission) return@detectTapGestures
-                                focusPoint = offset.x to offset.y
-                                val meteringPoint =
-                                    previewView.meteringPointFactory.createPoint(offset.x, offset.y)
-                                val action = FocusMeteringAction.Builder(
-                                    meteringPoint,
-                                    FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE,
-                                )
-                                    .setAutoCancelDuration(3, TimeUnit.SECONDS)
-                                    .build()
-                                cameraController.cameraControl?.startFocusAndMetering(action)
-                            }
-                        },
-                )
-
-                focusPoint?.let { (x, y) ->
-                    Box(
-                        modifier = Modifier
-                            .offset {
-                                IntOffset(
-                                    (x - with(density) { 24.dp.toPx() }).roundToInt(),
-                                    (y - with(density) { 24.dp.toPx() }).roundToInt(),
-                                )
-                            }
-                            .size(48.dp)
-                            .border(2.dp, Color(0xFFF4A261), CircleShape),
-                    )
-                }
-
-                Surface(
-                    color = Color(0x6608111A),
-                    tonalElevation = 0.dp,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(12.dp)
-                        .clip(RoundedCornerShape(16.dp)),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    ) {
-                        Text(
-                            text = "PocketDither",
-                            color = Color(0xFFE9F0EA),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = "Tap to focus",
-                            color = Color(0xFFB7C7BD),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        OutlinedButton(
-                            onClick = { showInfoDialog = true },
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        ) {
-                            Text(
-                                text = "? Ayuda",
-                                fontSize = 11.sp,
-                                maxLines = 1,
-                                softWrap = false,
-                            )
+                        .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+                    activeControl = activeControl,
+                    onControlSelected = { activeControlName = it.name },
+                    selectedPresetLabel = selectedPresetLabel,
+                    pattern = pattern,
+                    colorProfile = colorProfile,
+                    pixelSize = pixelSize,
+                    detail = detail,
+                    contrast = contrast,
+                    exposureIndex = exposureIndex,
+                    exposureRange = exposureRange,
+                    isExposureSupported = isExposureSupported,
+                    lastSavedUri = lastSavedUri,
+                    isCapturing = isCapturing,
+                    hasPermission = hasPermission,
+                    onApplyPreset = { applyPreset(it) },
+                    onPatternSelected = {
+                        patternName = it.name
+                        selectedPresetLabel = null
+                    },
+                    onPaletteSelected = {
+                        colorProfileName = it.name
+                        selectedPresetLabel = null
+                    },
+                    onPixelChange = {
+                        pixelSize = it
+                        selectedPresetLabel = null
+                    },
+                    onDetailChange = {
+                        detail = it
+                        selectedPresetLabel = null
+                    },
+                    onContrastChange = {
+                        contrast = it
+                        selectedPresetLabel = null
+                    },
+                    onExposureChange = {
+                        updateExposure(cameraController, exposureRange, it) { updated ->
+                            exposureIndex = updated
                         }
-                    }
-                }
-
-                val zoomOptions = remember(minZoomRatio, maxZoomRatio) {
-                    buildZoomOptions(minZoomRatio, maxZoomRatio)
-                }
-                if (zoomOptions.size > 1) {
-                    Surface(
-                        color = Color(0x6608111A),
-                        tonalElevation = 0.dp,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 12.dp)
-                            .clip(RoundedCornerShape(22.dp)),
-                    ) {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                        ) {
-                            items(zoomOptions) { zoom ->
-                                FilterChip(
-                                    selected = isZoomSelected(selectedZoomRatio, zoom),
-                                    onClick = {
-                                        cameraController.cameraControl?.setZoomRatio(zoom)
-                                        selectedZoomRatio = zoom
-                                    },
-                                    label = {
-                                        Text(
-                                            text = formatZoomLabel(zoom),
-                                            fontSize = 11.sp,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                        )
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Surface(
-                color = Color(0xFF08111A),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .wrapContentHeight(),
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                        .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
-                ) {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(CameraControlStripMode.entries) { control ->
-                            FilterChip(
-                                selected = control == activeControl,
-                                onClick = { activeControl = control },
-                                label = {
-                                    Text(
-                                        text = control.shortLabel,
-                                        fontSize = 11.sp,
-                                        maxLines = 1,
-                                        softWrap = false,
+                        selectedPresetLabel = null
+                    },
+                    onOpenGallery = { openSavedPhotosShortcut(context, lastSavedUri) },
+                    onCapture = {
+                        if (isCapturing) return@CameraControlsPane
+                        isCapturing = true
+                        cameraController.takePicture(
+                            analyzerExecutor,
+                            object : ImageCapture.OnImageCapturedCallback() {
+                                override fun onCaptureSuccess(image: ImageProxy) {
+                                    val processed = DitherProcessor.process(
+                                        image = image,
+                                        settings = settings,
+                                        targetSize = processingOutputSize,
                                     )
-                                },
-                            )
-                        }
-                    }
-
-                    when (activeControl) {
-                        CameraControlStripMode.PRESETS -> {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(DitherPresets.presets) { preset ->
-                                    FilterChip(
-                                        selected = preset.label == selectedPresetLabel,
-                                        onClick = { applyPreset(preset) },
-                                        label = {
-                                            Text(
-                                                text = preset.label,
-                                                fontSize = 11.sp,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        },
-                                    )
+                                    scope.launch(Dispatchers.IO) {
+                                        val savedUri = BitmapStorage.save(context, processed)
+                                        scope.launch(Dispatchers.Main) {
+                                            isCapturing = false
+                                            lastSavedUriString = savedUri?.toString()
+                                            showSavedMessage(context, savedUri)
+                                        }
+                                    }
                                 }
-                            }
-                        }
 
-                        CameraControlStripMode.PATTERN -> {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(DitherPattern.entries) { entry ->
-                                    FilterChip(
-                                        selected = entry == pattern,
-                                        onClick = {
-                                            pattern = entry
-                                            selectedPresetLabel = null
-                                        },
-                                        label = {
-                                            Text(
-                                                text = entry.label,
-                                                fontSize = 11.sp,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        },
-                                    )
+                                override fun onError(exception: ImageCaptureException) {
+                                    scope.launch(Dispatchers.Main) {
+                                        isCapturing = false
+                                        Toast.makeText(
+                                            context,
+                                            "Error al capturar: ${exception.message ?: "desconocido"}",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
                                 }
-                            }
-                        }
-
-                        CameraControlStripMode.PIXEL -> {
-                            CompactSliderRow(
-                                label = "Pixel",
-                                valueLabel = "${pixelSize}px",
-                                value = pixelSize.toFloat(),
-                                range = 2f..16f,
-                                onValueChange = {
-                                    pixelSize = it.roundToInt().coerceIn(2, 16)
-                                    selectedPresetLabel = null
-                                },
-                            )
-                        }
-
-                        CameraControlStripMode.DETAIL -> {
-                            CompactSliderRow(
-                                label = "Detalle",
-                                valueLabel = "%.2f".format(detail),
-                                value = detail,
-                                range = 0.35f..1.20f,
-                                onValueChange = {
-                                    detail = it.coerceIn(0.35f, 1.20f)
-                                    selectedPresetLabel = null
-                                },
-                            )
-                        }
-
-                        CameraControlStripMode.CONTRAST -> {
-                            CompactSliderRow(
-                                label = "Contraste",
-                                valueLabel = "%.2f".format(contrast),
-                                value = contrast,
-                                range = 0.6f..1.8f,
-                                onValueChange = {
-                                    contrast = it.coerceIn(0.6f, 1.8f)
-                                    selectedPresetLabel = null
-                                },
-                            )
-                        }
-
-                        CameraControlStripMode.PALETTE -> {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(ColorProfile.entries) { entry ->
-                                    FilterChip(
-                                        selected = entry == colorProfile,
-                                        onClick = {
-                                            colorProfile = entry
-                                            selectedPresetLabel = null
-                                        },
-                                        label = {
-                                            Text(
-                                                text = entry.label,
-                                                fontSize = 11.sp,
-                                                maxLines = 1,
-                                                softWrap = false,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        },
-                                    )
-                                }
-                            }
-                        }
-
-                        CameraControlStripMode.EXPOSURE -> {
-                            if (isExposureSupported) {
-                                ExposureControlRow(
-                                    exposureIndex = exposureIndex,
-                                    exposureRange = exposureRange,
-                                    onDecrease = {
-                                        updateExposure(cameraController, exposureRange, exposureIndex - 1) {
-                                            exposureIndex = it
-                                        }
-                                        selectedPresetLabel = null
-                                    },
-                                    onIncrease = {
-                                        updateExposure(cameraController, exposureRange, exposureIndex + 1) {
-                                            exposureIndex = it
-                                        }
-                                        selectedPresetLabel = null
-                                    },
-                                )
-                            } else {
-                                Text(
-                                    text = "La camara aun no ha expuesto controles manuales.",
-                                    color = Color(0xFFB7C7BD),
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        }
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            GalleryShortcutButton(
-                                lastSavedUri = lastSavedUri,
-                                onClick = { openSavedPhotosShortcut(context, lastSavedUri) },
-                            )
-                        }
-
-                        ShutterButton(
-                            capturing = isCapturing,
-                            enabled = hasPermission && !isCapturing,
-                            onClick = {
-                                if (isCapturing) return@ShutterButton
-                                isCapturing = true
-                                cameraController.takePicture(
-                                    analyzerExecutor,
-                                    object : ImageCapture.OnImageCapturedCallback() {
-                                        override fun onCaptureSuccess(image: ImageProxy) {
-                                            val processed = DitherProcessor.process(
-                                                image = image,
-                                                settings = settings,
-                                                targetSize = processingOutputSize,
-                                            )
-                                            scope.launch(Dispatchers.IO) {
-                                                val savedUri = BitmapStorage.save(context, processed)
-                                                scope.launch(Dispatchers.Main) {
-                                                    isCapturing = false
-                                                    lastSavedUri = savedUri
-                                                    showSavedMessage(context, savedUri)
-                                                }
-                                            }
-                                        }
-
-                                        override fun onError(exception: ImageCaptureException) {
-                                            scope.launch(Dispatchers.Main) {
-                                                isCapturing = false
-                                                Toast.makeText(
-                                                    context,
-                                                    "Error al capturar: ${exception.message ?: "desconocido"}",
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
-                                            }
-                                        }
-                                    },
-                                )
                             },
                         )
+                    },
+                )
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                CameraPreviewPane(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+                        .padding(horizontal = 10.dp, vertical = 10.dp),
+                    previewView = previewView,
+                    previewBitmap = previewBitmap,
+                    hasPermission = hasPermission,
+                    focusPoint = focusPoint,
+                    density = density,
+                    onFocus = { x, y ->
+                        focusPoint = x to y
+                        val meteringPoint = previewView.meteringPointFactory.createPoint(x, y)
+                        val action = FocusMeteringAction.Builder(
+                            meteringPoint,
+                            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE,
+                        )
+                            .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                            .build()
+                        cameraController.cameraControl?.startFocusAndMetering(action)
+                    },
+                    onSizeChanged = { previewViewportSize = Size(it.width, it.height) },
+                    onShowInfo = { showInfoDialog = true },
+                    minZoomRatio = minZoomRatio,
+                    maxZoomRatio = maxZoomRatio,
+                    selectedZoomRatio = selectedZoomRatio,
+                    onZoomSelected = { zoom ->
+                        cameraController.cameraControl?.setZoomRatio(zoom)
+                        selectedZoomRatio = zoom
+                    },
+                )
 
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterEnd,
-                        ) {
-                            Surface(
-                                color = Color(0x22000000),
-                                shape = RoundedCornerShape(16.dp),
-                            ) {
-                                Text(
-                                    text = selectedPresetLabel ?: colorProfile.label,
-                                    color = Color(0xFFB7C7BD),
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                )
-                            }
+                CameraControlsPane(
+                    modifier = Modifier.fillMaxWidth(),
+                    activeControl = activeControl,
+                    onControlSelected = { activeControlName = it.name },
+                    selectedPresetLabel = selectedPresetLabel,
+                    pattern = pattern,
+                    colorProfile = colorProfile,
+                    pixelSize = pixelSize,
+                    detail = detail,
+                    contrast = contrast,
+                    exposureIndex = exposureIndex,
+                    exposureRange = exposureRange,
+                    isExposureSupported = isExposureSupported,
+                    lastSavedUri = lastSavedUri,
+                    isCapturing = isCapturing,
+                    hasPermission = hasPermission,
+                    onApplyPreset = { applyPreset(it) },
+                    onPatternSelected = {
+                        patternName = it.name
+                        selectedPresetLabel = null
+                    },
+                    onPaletteSelected = {
+                        colorProfileName = it.name
+                        selectedPresetLabel = null
+                    },
+                    onPixelChange = {
+                        pixelSize = it
+                        selectedPresetLabel = null
+                    },
+                    onDetailChange = {
+                        detail = it
+                        selectedPresetLabel = null
+                    },
+                    onContrastChange = {
+                        contrast = it
+                        selectedPresetLabel = null
+                    },
+                    onExposureChange = {
+                        updateExposure(cameraController, exposureRange, it) { updated ->
+                            exposureIndex = updated
                         }
-                    }
-                }
+                        selectedPresetLabel = null
+                    },
+                    onOpenGallery = { openSavedPhotosShortcut(context, lastSavedUri) },
+                    onCapture = {
+                        if (isCapturing) return@CameraControlsPane
+                        isCapturing = true
+                        cameraController.takePicture(
+                            analyzerExecutor,
+                            object : ImageCapture.OnImageCapturedCallback() {
+                                override fun onCaptureSuccess(image: ImageProxy) {
+                                    val processed = DitherProcessor.process(
+                                        image = image,
+                                        settings = settings,
+                                        targetSize = processingOutputSize,
+                                    )
+                                    scope.launch(Dispatchers.IO) {
+                                        val savedUri = BitmapStorage.save(context, processed)
+                                        scope.launch(Dispatchers.Main) {
+                                            isCapturing = false
+                                            lastSavedUriString = savedUri?.toString()
+                                            showSavedMessage(context, savedUri)
+                                        }
+                                    }
+                                }
+
+                                override fun onError(exception: ImageCaptureException) {
+                                    scope.launch(Dispatchers.Main) {
+                                        isCapturing = false
+                                        Toast.makeText(
+                                            context,
+                                            "Error al capturar: ${exception.message ?: "desconocido"}",
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    }
+                                }
+                            },
+                        )
+                    },
+                )
             }
         }
 
@@ -638,12 +507,380 @@ fun CameraScreen() {
 }
 
 @Composable
+private fun CameraPreviewPane(
+    modifier: Modifier,
+    previewView: PreviewView,
+    previewBitmap: Bitmap?,
+    hasPermission: Boolean,
+    focusPoint: Pair<Float, Float>?,
+    density: Density,
+    onFocus: (Float, Float) -> Unit,
+    onSizeChanged: (androidx.compose.ui.unit.IntSize) -> Unit,
+    onShowInfo: () -> Unit,
+    minZoomRatio: Float,
+    maxZoomRatio: Float,
+    selectedZoomRatio: Float,
+    onZoomSelected: (Float) -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color.Black)
+            .onSizeChanged(onSizeChanged),
+    ) {
+        AndroidView(
+            factory = { previewView },
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        previewBitmap?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Preview procesada",
+                contentScale = ContentScale.Crop,
+                filterQuality = FilterQuality.None,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(hasPermission) {
+                    detectTapGestures { offset ->
+                        if (!hasPermission) return@detectTapGestures
+                        onFocus(offset.x, offset.y)
+                    }
+                },
+        )
+
+        focusPoint?.let { (x, y) ->
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (x - with(density) { 24.dp.toPx() }).roundToInt(),
+                            (y - with(density) { 24.dp.toPx() }).roundToInt(),
+                        )
+                    }
+                    .size(48.dp)
+                    .border(2.dp, Color(0xFFF4A261), CircleShape),
+            )
+        }
+
+        Surface(
+            color = Color(0x6608111A),
+            tonalElevation = 0.dp,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(12.dp)
+                .clip(RoundedCornerShape(16.dp)),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = "PocketDither",
+                    color = Color(0xFFE9F0EA),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "Tap to focus",
+                    color = Color(0xFFB7C7BD),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    onClick = onShowInfo,
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                ) {
+                    Text(
+                        text = "? Ayuda",
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
+            }
+        }
+
+        val zoomOptions = remember(minZoomRatio, maxZoomRatio) {
+            buildZoomOptions(minZoomRatio, maxZoomRatio)
+        }
+        if (zoomOptions.size > 1) {
+            Surface(
+                color = Color(0x6608111A),
+                tonalElevation = 0.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 12.dp)
+                    .clip(RoundedCornerShape(22.dp)),
+            ) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                ) {
+                    items(zoomOptions) { zoom ->
+                        FilterChip(
+                            selected = isZoomSelected(selectedZoomRatio, zoom),
+                            onClick = { onZoomSelected(zoom) },
+                            label = {
+                                Text(
+                                    text = formatZoomLabel(zoom),
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CameraControlsPane(
+    modifier: Modifier,
+    activeControl: CameraControlStripMode,
+    onControlSelected: (CameraControlStripMode) -> Unit,
+    selectedPresetLabel: String?,
+    pattern: DitherPattern,
+    colorProfile: ColorProfile,
+    pixelSize: Int,
+    detail: Float,
+    contrast: Float,
+    exposureIndex: Int,
+    exposureRange: Range<Int>,
+    isExposureSupported: Boolean,
+    lastSavedUri: Uri?,
+    isCapturing: Boolean,
+    hasPermission: Boolean,
+    onApplyPreset: (DitherPreset) -> Unit,
+    onPatternSelected: (DitherPattern) -> Unit,
+    onPaletteSelected: (ColorProfile) -> Unit,
+    onPixelChange: (Int) -> Unit,
+    onDetailChange: (Float) -> Unit,
+    onContrastChange: (Float) -> Unit,
+    onExposureChange: (Int) -> Unit,
+    onOpenGallery: () -> Unit,
+    onCapture: () -> Unit,
+) {
+    Surface(
+        color = Color(0xFF08111A),
+        modifier = modifier.wrapContentHeight(),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+        ) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(CameraControlStripMode.entries) { control ->
+                    FilterChip(
+                        selected = control == activeControl,
+                        onClick = { onControlSelected(control) },
+                        label = {
+                            Text(
+                                text = control.shortLabel,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                softWrap = false,
+                            )
+                        },
+                    )
+                }
+            }
+
+            when (activeControl) {
+                CameraControlStripMode.PRESETS -> {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(DitherPresets.presets) { preset ->
+                            FilterChip(
+                                selected = preset.label == selectedPresetLabel,
+                                onClick = { onApplyPreset(preset) },
+                                label = {
+                                    Text(
+                                        text = preset.label,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+
+                CameraControlStripMode.PATTERN -> {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(DitherPattern.entries) { entry ->
+                            FilterChip(
+                                selected = entry == pattern,
+                                onClick = { onPatternSelected(entry) },
+                                label = {
+                                    Text(
+                                        text = entry.label,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+
+                CameraControlStripMode.PIXEL -> {
+                    CompactSliderRow(
+                        label = "Pixel",
+                        valueLabel = "${pixelSize}px",
+                        value = pixelSize.toFloat(),
+                        range = 2f..16f,
+                        steps = 13,
+                        onValueChange = { onPixelChange(it.roundToInt().coerceIn(2, 16)) },
+                        onDecrease = { onPixelChange((pixelSize - 1).coerceAtLeast(2)) },
+                        onIncrease = { onPixelChange((pixelSize + 1).coerceAtMost(16)) },
+                        decreaseEnabled = pixelSize > 2,
+                        increaseEnabled = pixelSize < 16,
+                    )
+                }
+
+                CameraControlStripMode.DETAIL -> {
+                    CompactSliderRow(
+                        label = "Detalle",
+                        valueLabel = "%.2f".format(detail),
+                        value = detail,
+                        range = 0.35f..1.20f,
+                        steps = 16,
+                        onValueChange = { onDetailChange(it.coerceIn(0.35f, 1.20f)) },
+                        onDecrease = { onDetailChange((detail - 0.05f).coerceAtLeast(0.35f)) },
+                        onIncrease = { onDetailChange((detail + 0.05f).coerceAtMost(1.20f)) },
+                        decreaseEnabled = detail > 0.35f,
+                        increaseEnabled = detail < 1.20f,
+                    )
+                }
+
+                CameraControlStripMode.CONTRAST -> {
+                    CompactSliderRow(
+                        label = "Contraste",
+                        valueLabel = "%.2f".format(contrast),
+                        value = contrast,
+                        range = 0.6f..1.8f,
+                        steps = 11,
+                        onValueChange = { onContrastChange(it.coerceIn(0.6f, 1.8f)) },
+                        onDecrease = { onContrastChange((contrast - 0.1f).coerceAtLeast(0.6f)) },
+                        onIncrease = { onContrastChange((contrast + 0.1f).coerceAtMost(1.8f)) },
+                        decreaseEnabled = contrast > 0.6f,
+                        increaseEnabled = contrast < 1.8f,
+                    )
+                }
+
+                CameraControlStripMode.PALETTE -> {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(ColorProfile.entries) { entry ->
+                            FilterChip(
+                                selected = entry == colorProfile,
+                                onClick = { onPaletteSelected(entry) },
+                                label = {
+                                    Text(
+                                        text = entry.label,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                },
+                            )
+                        }
+                    }
+                }
+
+                CameraControlStripMode.EXPOSURE -> {
+                    if (isExposureSupported) {
+                        CompactSliderRow(
+                            label = "Exp",
+                            valueLabel = exposureIndex.toString(),
+                            value = exposureIndex.toFloat(),
+                            range = exposureRange.lower.toFloat()..exposureRange.upper.toFloat(),
+                            steps = (exposureRange.upper - exposureRange.lower - 1).coerceAtLeast(0),
+                            onValueChange = { onExposureChange(it.roundToInt()) },
+                            onDecrease = { onExposureChange(exposureIndex - 1) },
+                            onIncrease = { onExposureChange(exposureIndex + 1) },
+                            decreaseEnabled = exposureIndex > exposureRange.lower,
+                            increaseEnabled = exposureIndex < exposureRange.upper,
+                        )
+                    } else {
+                        Text(
+                            text = "La camara aun no ha expuesto controles manuales.",
+                            color = Color(0xFFB7C7BD),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    GalleryShortcutButton(
+                        lastSavedUri = lastSavedUri,
+                        onClick = onOpenGallery,
+                    )
+                }
+
+                ShutterButton(
+                    capturing = isCapturing,
+                    enabled = hasPermission && !isCapturing,
+                    onClick = onCapture,
+                )
+
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    Surface(
+                        color = Color(0x22000000),
+                        shape = RoundedCornerShape(16.dp),
+                    ) {
+                        Text(
+                            text = selectedPresetLabel ?: colorProfile.label,
+                            color = Color(0xFFB7C7BD),
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun CompactSliderRow(
     label: String,
     valueLabel: String,
     value: Float,
     range: ClosedFloatingPointRange<Float>,
+    steps: Int = 0,
     onValueChange: (Float) -> Unit,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit,
+    decreaseEnabled: Boolean = true,
+    increaseEnabled: Boolean = true,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -658,17 +895,34 @@ private fun CompactSliderRow(
             maxLines = 1,
             softWrap = false,
         )
+        OutlinedButton(
+            onClick = onDecrease,
+            enabled = decreaseEnabled,
+            modifier = Modifier.size(36.dp),
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            Text(text = "-", fontSize = 14.sp)
+        }
         Slider(
             value = value,
             onValueChange = onValueChange,
             valueRange = range,
+            steps = steps,
             modifier = Modifier.weight(1f),
         )
+        OutlinedButton(
+            onClick = onIncrease,
+            enabled = increaseEnabled,
+            modifier = Modifier.size(36.dp),
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            Text(text = "+", fontSize = 14.sp)
+        }
         Text(
             text = valueLabel,
             color = Color(0xFFB7C7BD),
             fontSize = 12.sp,
-            modifier = Modifier.width(46.dp),
+            modifier = Modifier.width(52.dp),
             maxLines = 1,
             softWrap = false,
         )
@@ -692,47 +946,6 @@ private fun InfoLine(
             color = Color(0xFFB7C7BD),
             fontSize = 12.sp,
         )
-    }
-}
-
-@Composable
-private fun ExposureControlRow(
-    exposureIndex: Int,
-    exposureRange: Range<Int>,
-    onDecrease: () -> Unit,
-    onIncrease: () -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            text = "Exp",
-            color = Color(0xFFE9F0EA),
-            fontSize = 12.sp,
-            modifier = Modifier.width(40.dp),
-        )
-        OutlinedButton(
-            onClick = onDecrease,
-            enabled = exposureIndex > exposureRange.lower,
-            modifier = Modifier.height(34.dp),
-        ) {
-            Text("-")
-        }
-        Text(
-            text = exposureIndex.toString(),
-            color = Color(0xFFB7C7BD),
-            fontSize = 12.sp,
-            modifier = Modifier.width(24.dp),
-        )
-        OutlinedButton(
-            onClick = onIncrease,
-            enabled = exposureIndex < exposureRange.upper,
-            modifier = Modifier.height(34.dp),
-        ) {
-            Text("+")
-        }
     }
 }
 
