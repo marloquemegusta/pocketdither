@@ -52,7 +52,15 @@ if (Test-Path $javaHome) {
 }
 
 Write-Host "Building debug and release APKs..."
-Invoke-Step -Action { .\gradlew.bat assembleDebug assembleRelease } -ErrorMessage "Gradle build failed."
+Invoke-Step -Action { .\gradlew.bat assembleDebug } -ErrorMessage "Debug build failed."
+
+$releaseValidatedLocally = $true
+try {
+    Invoke-Step -Action { .\gradlew.bat assembleRelease } -ErrorMessage "Release build failed."
+} catch {
+    $releaseValidatedLocally = $false
+    Write-Warning "Local release build failed. Continuing because GitHub Actions will build the release APK on the tag."
+}
 
 Write-Host "Staging changes..."
 Invoke-Step -Action { git add -A } -ErrorMessage "git add failed."
@@ -86,4 +94,9 @@ Invoke-Step -Action { git push origin $Version } -ErrorMessage "git push tag fai
 
 Write-Host ""
 Write-Host "Release triggered for $Version."
+if ($releaseValidatedLocally) {
+    Write-Host "Local debug and release builds passed."
+} else {
+    Write-Host "Local debug build passed. Release APK will be validated by GitHub Actions."
+}
 Write-Host "GitHub Release workflow should attach APK assets automatically."

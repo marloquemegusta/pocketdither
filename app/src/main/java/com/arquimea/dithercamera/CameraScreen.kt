@@ -29,6 +29,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -76,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
@@ -93,6 +95,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.arquimea.dithercamera.camera.BitmapStorage
 import com.arquimea.dithercamera.camera.ColorProfile
@@ -156,9 +160,12 @@ fun CameraScreen() {
     var selectedPresetLabel by rememberSaveable { mutableStateOf<String?>(null) }
     var showInfoDialog by rememberSaveable { mutableStateOf(false) }
     var isExposureSupported by remember { mutableStateOf(false) }
+    var hasFlashUnit by remember { mutableStateOf(false) }
     var minZoomRatio by remember { mutableFloatStateOf(1.0f) }
     var maxZoomRatio by remember { mutableFloatStateOf(1.0f) }
-    var selectedZoomRatio by remember { mutableFloatStateOf(1.0f) }
+    var selectedZoomRatio by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var flashModeName by rememberSaveable { mutableStateOf(FlashModeOption.OFF.name) }
+    val flashMode = remember(flashModeName) { FlashModeOption.valueOf(flashModeName) }
 
     val settings by rememberUpdatedState(
         DitherSettings(
@@ -180,15 +187,52 @@ fun CameraScreen() {
         selectedPresetLabel = preset.label
     }
 
-    fun refreshExposureState() {
+    fun applyFlashMode(mode: FlashModeOption) {
+        if (!hasFlashUnit) return
+        when (mode) {
+            FlashModeOption.OFF -> {
+                cameraController.imageCaptureFlashMode = ImageCapture.FLASH_MODE_OFF
+                cameraController.cameraControl?.enableTorch(false)
+            }
+
+            FlashModeOption.ON_CAPTURE -> {
+                cameraController.cameraControl?.enableTorch(false)
+                cameraController.imageCaptureFlashMode = ImageCapture.FLASH_MODE_ON
+            }
+
+            FlashModeOption.ALWAYS_ON -> {
+                cameraController.imageCaptureFlashMode = ImageCapture.FLASH_MODE_OFF
+                cameraController.cameraControl?.enableTorch(true)
+            }
+        }
+    }
+
+    fun refreshCameraState() {
         val exposureState = cameraController.cameraInfo?.exposureState
         isExposureSupported = exposureState?.isExposureCompensationSupported == true
         exposureRange = exposureState?.exposureCompensationRange ?: Range(0, 0)
-        exposureIndex = exposureState?.exposureCompensationIndex ?: 0
+        hasFlashUnit = cameraController.cameraInfo?.hasFlashUnit() == true
         val zoomState = cameraController.cameraInfo?.zoomState?.value
         minZoomRatio = zoomState?.minZoomRatio ?: 1.0f
         maxZoomRatio = zoomState?.maxZoomRatio ?: 1.0f
-        selectedZoomRatio = zoomState?.zoomRatio ?: 1.0f
+        if (selectedZoomRatio == 1.0f && zoomState != null) {
+            selectedZoomRatio = zoomState.zoomRatio
+        }
+    }
+
+    fun restoreCameraState() {
+        refreshCameraState()
+        val restoredZoom = selectedZoomRatio.coerceIn(minZoomRatio, maxZoomRatio)
+        cameraController.cameraControl?.setZoomRatio(restoredZoom)
+        selectedZoomRatio = restoredZoom
+        if (isExposureSupported) {
+            val restoredExposure = exposureIndex.coerceIn(exposureRange.lower, exposureRange.upper)
+            cameraController.cameraControl?.setExposureCompensationIndex(restoredExposure)
+            exposureIndex = restoredExposure
+        } else {
+            exposureIndex = 0
+        }
+        applyFlashMode(flashMode)
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -215,9 +259,9 @@ fun CameraScreen() {
         if (!hasPermission) return@LaunchedEffect
         previewView.controller = cameraController
         cameraController.bindToLifecycle(lifecycleOwner)
-        refreshExposureState()
+        refreshCameraState()
         cameraController.initializationFuture.addListener(
-            { refreshExposureState() },
+            { restoreCameraState() },
             ContextCompat.getMainExecutor(context),
         )
         cameraController.setImageAnalysisAnalyzer(analyzerExecutor) { image ->
@@ -236,6 +280,22 @@ fun CameraScreen() {
         onDispose {
             cameraController.clearImageAnalysisAnalyzer()
             analyzerExecutor.shutdown()
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, hasPermission, selectedZoomRatio, exposureIndex, flashModeName) {
+        if (!hasPermission) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_START) {
+                    restoreCameraState()
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
         }
     }
 
@@ -267,7 +327,12 @@ fun CameraScreen() {
                             .build()
                         cameraController.cameraControl?.startFocusAndMetering(action)
                     },
-                    onSizeChanged = { previewViewportSize = Size(it.width, it.height) },
+                    onSizeChanged = {
+                        previewViewportSize = Size(it.width, it.height)
+                        if (focusPoint == null) {
+                            focusPoint = it.width / 2f to it.height / 2f
+                        }
+                    },
                     onShowInfo = { showInfoDialog = true },
                     minZoomRatio = minZoomRatio,
                     maxZoomRatio = maxZoomRatio,
@@ -275,6 +340,26 @@ fun CameraScreen() {
                     onZoomSelected = { zoom ->
                         cameraController.cameraControl?.setZoomRatio(zoom)
                         selectedZoomRatio = zoom
+                    },
+                    hasFlashUnit = hasFlashUnit,
+                    flashMode = flashMode,
+                    onFlashModeSelected = {
+                        flashModeName = it.name
+                        applyFlashMode(it)
+                    },
+                    contrast = contrast,
+                    onContrastChange = {
+                        contrast = it
+                        selectedPresetLabel = null
+                    },
+                    exposureIndex = exposureIndex,
+                    exposureRange = exposureRange,
+                    isExposureSupported = isExposureSupported,
+                    onExposureChange = {
+                        updateExposure(cameraController, exposureRange, it) { updated ->
+                            exposureIndex = updated
+                        }
+                        selectedPresetLabel = null
                     },
                 )
 
@@ -290,10 +375,6 @@ fun CameraScreen() {
                     colorProfile = colorProfile,
                     pixelSize = pixelSize,
                     detail = detail,
-                    contrast = contrast,
-                    exposureIndex = exposureIndex,
-                    exposureRange = exposureRange,
-                    isExposureSupported = isExposureSupported,
                     lastSavedUri = lastSavedUri,
                     isCapturing = isCapturing,
                     hasPermission = hasPermission,
@@ -312,16 +393,6 @@ fun CameraScreen() {
                     },
                     onDetailChange = {
                         detail = it
-                        selectedPresetLabel = null
-                    },
-                    onContrastChange = {
-                        contrast = it
-                        selectedPresetLabel = null
-                    },
-                    onExposureChange = {
-                        updateExposure(cameraController, exposureRange, it) { updated ->
-                            exposureIndex = updated
-                        }
                         selectedPresetLabel = null
                     },
                     onOpenGallery = { openSavedPhotosShortcut(context, lastSavedUri) },
@@ -386,7 +457,12 @@ fun CameraScreen() {
                             .build()
                         cameraController.cameraControl?.startFocusAndMetering(action)
                     },
-                    onSizeChanged = { previewViewportSize = Size(it.width, it.height) },
+                    onSizeChanged = {
+                        previewViewportSize = Size(it.width, it.height)
+                        if (focusPoint == null) {
+                            focusPoint = it.width / 2f to it.height / 2f
+                        }
+                    },
                     onShowInfo = { showInfoDialog = true },
                     minZoomRatio = minZoomRatio,
                     maxZoomRatio = maxZoomRatio,
@@ -394,6 +470,26 @@ fun CameraScreen() {
                     onZoomSelected = { zoom ->
                         cameraController.cameraControl?.setZoomRatio(zoom)
                         selectedZoomRatio = zoom
+                    },
+                    hasFlashUnit = hasFlashUnit,
+                    flashMode = flashMode,
+                    onFlashModeSelected = {
+                        flashModeName = it.name
+                        applyFlashMode(it)
+                    },
+                    contrast = contrast,
+                    onContrastChange = {
+                        contrast = it
+                        selectedPresetLabel = null
+                    },
+                    exposureIndex = exposureIndex,
+                    exposureRange = exposureRange,
+                    isExposureSupported = isExposureSupported,
+                    onExposureChange = {
+                        updateExposure(cameraController, exposureRange, it) { updated ->
+                            exposureIndex = updated
+                        }
+                        selectedPresetLabel = null
                     },
                 )
 
@@ -406,10 +502,6 @@ fun CameraScreen() {
                     colorProfile = colorProfile,
                     pixelSize = pixelSize,
                     detail = detail,
-                    contrast = contrast,
-                    exposureIndex = exposureIndex,
-                    exposureRange = exposureRange,
-                    isExposureSupported = isExposureSupported,
                     lastSavedUri = lastSavedUri,
                     isCapturing = isCapturing,
                     hasPermission = hasPermission,
@@ -428,16 +520,6 @@ fun CameraScreen() {
                     },
                     onDetailChange = {
                         detail = it
-                        selectedPresetLabel = null
-                    },
-                    onContrastChange = {
-                        contrast = it
-                        selectedPresetLabel = null
-                    },
-                    onExposureChange = {
-                        updateExposure(cameraController, exposureRange, it) { updated ->
-                            exposureIndex = updated
-                        }
                         selectedPresetLabel = null
                     },
                     onOpenGallery = { openSavedPhotosShortcut(context, lastSavedUri) },
@@ -496,9 +578,10 @@ fun CameraScreen() {
                         InfoLine("Patron", "Cambia la trama de dither. Afecta al grano y al reparto de puntos.")
                         InfoLine("Pixel", "Hace mas grandes o pequenos los bloques visibles del efecto.")
                         InfoLine("Detalle", "Cambia la resolucion interna del procesado. Menos detalle da un look mas retro; mas detalle conserva mas informacion.")
-                        InfoLine("Contraste", "Empuja sombras y luces antes del dither.")
-                        InfoLine("Exposicion", "Aclara u oscurece la camara antes del procesado.")
-                        InfoLine("Zoom", "Usa el zoom del sistema y el movil cambia de lente automaticamente cuando corresponde.")
+                        InfoLine("Contraste", "Se ajusta con la barra izquierda del reticulo al tocar para enfocar.")
+                        InfoLine("Exposicion", "Se ajusta con la barra derecha del reticulo. Aclara u oscurece antes del procesado.")
+                        InfoLine("Zoom", "La barra inferior usa el rango real del movil, en vez de valores fijos inventados.")
+                        InfoLine("Flash", "Arriba a la derecha puedes elegir apagado, flash al disparar o luz continua.")
                     }
                 },
             )
@@ -521,6 +604,15 @@ private fun CameraPreviewPane(
     maxZoomRatio: Float,
     selectedZoomRatio: Float,
     onZoomSelected: (Float) -> Unit,
+    hasFlashUnit: Boolean,
+    flashMode: FlashModeOption,
+    onFlashModeSelected: (FlashModeOption) -> Unit,
+    contrast: Float,
+    onContrastChange: (Float) -> Unit,
+    exposureIndex: Int,
+    exposureRange: Range<Int>,
+    isExposureSupported: Boolean,
+    onExposureChange: (Int) -> Unit,
 ) {
     Box(
         modifier = modifier
@@ -554,19 +646,16 @@ private fun CameraPreviewPane(
                 },
         )
 
-        focusPoint?.let { (x, y) ->
-            Box(
-                modifier = Modifier
-                    .offset {
-                        IntOffset(
-                            (x - with(density) { 24.dp.toPx() }).roundToInt(),
-                            (y - with(density) { 24.dp.toPx() }).roundToInt(),
-                        )
-                    }
-                    .size(48.dp)
-                    .border(2.dp, Color(0xFFF4A261), CircleShape),
-            )
-        }
+        FocusAssistOverlay(
+            focusPoint = focusPoint,
+            density = density,
+            contrast = contrast,
+            onContrastChange = onContrastChange,
+            exposureIndex = exposureIndex,
+            exposureRange = exposureRange,
+            isExposureSupported = isExposureSupported,
+            onExposureChange = onExposureChange,
+        )
 
         Surface(
             color = Color(0x6608111A),
@@ -607,29 +696,26 @@ private fun CameraPreviewPane(
             }
         }
 
-        val zoomOptions = remember(minZoomRatio, maxZoomRatio) {
-            buildZoomOptions(minZoomRatio, maxZoomRatio)
-        }
-        if (zoomOptions.size > 1) {
+        if (hasFlashUnit) {
             Surface(
                 color = Color(0x6608111A),
                 tonalElevation = 0.dp,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 12.dp)
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
                     .clip(RoundedCornerShape(22.dp)),
             ) {
-                LazyRow(
+                Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                 ) {
-                    items(zoomOptions) { zoom ->
+                    FlashModeOption.entries.forEach { entry ->
                         FilterChip(
-                            selected = isZoomSelected(selectedZoomRatio, zoom),
-                            onClick = { onZoomSelected(zoom) },
+                            selected = flashMode == entry,
+                            onClick = { onFlashModeSelected(entry) },
                             label = {
                                 Text(
-                                    text = formatZoomLabel(zoom),
+                                    text = entry.shortLabel,
                                     fontSize = 11.sp,
                                     maxLines = 1,
                                     softWrap = false,
@@ -639,6 +725,174 @@ private fun CameraPreviewPane(
                     }
                 }
             }
+        }
+
+        Surface(
+            color = Color(0x6608111A),
+            tonalElevation = 0.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 12.dp, vertical = 12.dp)
+                .clip(RoundedCornerShape(22.dp)),
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "Zoom",
+                        color = Color(0xFFB7C7BD),
+                        fontSize = 11.sp,
+                    )
+                    Text(
+                        text = formatZoomLabel(selectedZoomRatio),
+                        color = Color(0xFFE9F0EA),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Slider(
+                    value = selectedZoomRatio.coerceIn(minZoomRatio, maxZoomRatio),
+                    onValueChange = onZoomSelected,
+                    valueRange = minZoomRatio..maxZoomRatio,
+                    modifier = Modifier.width(220.dp),
+                )
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = formatZoomLabel(minZoomRatio),
+                        color = Color(0xFF8FA198),
+                        fontSize = 10.sp,
+                    )
+                    Text(
+                        text = formatZoomLabel(maxZoomRatio),
+                        color = Color(0xFF8FA198),
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FocusAssistOverlay(
+    focusPoint: Pair<Float, Float>?,
+    density: Density,
+    contrast: Float,
+    onContrastChange: (Float) -> Unit,
+    exposureIndex: Int,
+    exposureRange: Range<Int>,
+    isExposureSupported: Boolean,
+    onExposureChange: (Int) -> Unit,
+) {
+    focusPoint ?: return
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val (x, y) = focusPoint
+        val maxWidthPx = constraints.maxWidth.toFloat()
+        val maxHeightPx = constraints.maxHeight.toFloat()
+        val ringSizePx = with(density) { 48.dp.toPx() }
+        val sliderWidthPx = with(density) { 46.dp.toPx() }
+        val sliderHeightPx = with(density) { 170.dp.toPx() }
+        val gapPx = with(density) { 14.dp.toPx() }
+        val edgePaddingPx = with(density) { 10.dp.toPx() }
+
+        val ringOffsetX = (x - ringSizePx / 2f).coerceIn(edgePaddingPx, maxWidthPx - ringSizePx - edgePaddingPx)
+        val ringOffsetY = (y - ringSizePx / 2f).coerceIn(edgePaddingPx, maxHeightPx - ringSizePx - edgePaddingPx)
+        val sliderOffsetY = (y - sliderHeightPx / 2f).coerceIn(edgePaddingPx, maxHeightPx - sliderHeightPx - edgePaddingPx)
+        val leftSliderX = (ringOffsetX - sliderWidthPx - gapPx).coerceIn(edgePaddingPx, maxWidthPx - sliderWidthPx - edgePaddingPx)
+        val rightSliderX = (ringOffsetX + ringSizePx + gapPx).coerceIn(edgePaddingPx, maxWidthPx - sliderWidthPx - edgePaddingPx)
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(ringOffsetX.roundToInt(), ringOffsetY.roundToInt()) }
+                .size(48.dp)
+                .border(2.dp, Color(0xFFF4A261), CircleShape),
+        )
+
+        FocusSideSlider(
+            modifier = Modifier.offset { IntOffset(leftSliderX.roundToInt(), sliderOffsetY.roundToInt()) },
+            label = "CON",
+            valueLabel = "%.1f".format(contrast),
+            value = contrast,
+            range = 0.6f..1.8f,
+            steps = 11,
+            accent = Color(0xFFDCC7A1),
+            onValueChange = { onContrastChange(it.coerceIn(0.6f, 1.8f)) },
+        )
+
+        if (isExposureSupported) {
+            FocusSideSlider(
+                modifier = Modifier.offset { IntOffset(rightSliderX.roundToInt(), sliderOffsetY.roundToInt()) },
+                label = "EXP",
+                valueLabel = exposureIndex.toString(),
+                value = exposureIndex.toFloat(),
+                range = exposureRange.lower.toFloat()..exposureRange.upper.toFloat(),
+                steps = (exposureRange.upper - exposureRange.lower - 1).coerceAtLeast(0),
+                accent = Color(0xFFF4A261),
+                onValueChange = { onExposureChange(it.roundToInt()) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FocusSideSlider(
+    modifier: Modifier,
+    label: String,
+    valueLabel: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    accent: Color,
+    onValueChange: (Float) -> Unit,
+) {
+    Surface(
+        color = Color(0x6608111A),
+        shape = RoundedCornerShape(20.dp),
+        modifier = modifier,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+        ) {
+            Text(
+                text = label,
+                color = Color(0xFFE9F0EA),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .width(36.dp)
+                    .height(130.dp),
+            ) {
+                Slider(
+                    value = value,
+                    onValueChange = onValueChange,
+                    valueRange = range,
+                    steps = steps,
+                    modifier = Modifier
+                        .width(130.dp)
+                        .rotate(-90f),
+                )
+            }
+            Text(
+                text = valueLabel,
+                color = accent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+            )
         }
     }
 }
@@ -653,10 +907,6 @@ private fun CameraControlsPane(
     colorProfile: ColorProfile,
     pixelSize: Int,
     detail: Float,
-    contrast: Float,
-    exposureIndex: Int,
-    exposureRange: Range<Int>,
-    isExposureSupported: Boolean,
     lastSavedUri: Uri?,
     isCapturing: Boolean,
     hasPermission: Boolean,
@@ -665,8 +915,6 @@ private fun CameraControlsPane(
     onPaletteSelected: (ColorProfile) -> Unit,
     onPixelChange: (Int) -> Unit,
     onDetailChange: (Float) -> Unit,
-    onContrastChange: (Float) -> Unit,
-    onExposureChange: (Int) -> Unit,
     onOpenGallery: () -> Unit,
     onCapture: () -> Unit,
 ) {
@@ -769,21 +1017,6 @@ private fun CameraControlsPane(
                     )
                 }
 
-                CameraControlStripMode.CONTRAST -> {
-                    CompactSliderRow(
-                        label = "Contraste",
-                        valueLabel = "%.2f".format(contrast),
-                        value = contrast,
-                        range = 0.6f..1.8f,
-                        steps = 11,
-                        onValueChange = { onContrastChange(it.coerceIn(0.6f, 1.8f)) },
-                        onDecrease = { onContrastChange((contrast - 0.1f).coerceAtLeast(0.6f)) },
-                        onIncrease = { onContrastChange((contrast + 0.1f).coerceAtMost(1.8f)) },
-                        decreaseEnabled = contrast > 0.6f,
-                        increaseEnabled = contrast < 1.8f,
-                    )
-                }
-
                 CameraControlStripMode.PALETTE -> {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(ColorProfile.entries) { entry ->
@@ -804,28 +1037,6 @@ private fun CameraControlsPane(
                     }
                 }
 
-                CameraControlStripMode.EXPOSURE -> {
-                    if (isExposureSupported) {
-                        CompactSliderRow(
-                            label = "Exp",
-                            valueLabel = exposureIndex.toString(),
-                            value = exposureIndex.toFloat(),
-                            range = exposureRange.lower.toFloat()..exposureRange.upper.toFloat(),
-                            steps = (exposureRange.upper - exposureRange.lower - 1).coerceAtLeast(0),
-                            onValueChange = { onExposureChange(it.roundToInt()) },
-                            onDecrease = { onExposureChange(exposureIndex - 1) },
-                            onIncrease = { onExposureChange(exposureIndex + 1) },
-                            decreaseEnabled = exposureIndex > exposureRange.lower,
-                            increaseEnabled = exposureIndex < exposureRange.upper,
-                        )
-                    } else {
-                        Text(
-                            text = "La camara aun no ha expuesto controles manuales.",
-                            color = Color(0xFFB7C7BD),
-                            fontSize = 12.sp,
-                        )
-                    }
-                }
             }
 
             Row(
@@ -1024,28 +1235,20 @@ private enum class CameraControlStripMode(val shortLabel: String) {
     PATTERN("Patron"),
     PIXEL("Pixel"),
     DETAIL("Detalle"),
-    CONTRAST("Contraste"),
-    EXPOSURE("Exposicion"),
 }
 
-private fun buildZoomOptions(
-    minZoomRatio: Float,
-    maxZoomRatio: Float,
-): List<Float> {
-    val candidates = listOf(0.5f, 1.0f, 2.0f, 5.0f)
-    return candidates
-        .filter { it in minZoomRatio..maxZoomRatio }
-        .ifEmpty { listOf(minZoomRatio.coerceAtLeast(1.0f)) }
+private enum class FlashModeOption(val shortLabel: String) {
+    OFF("Off"),
+    ON_CAPTURE("Flash"),
+    ALWAYS_ON("On"),
 }
-
-private fun isZoomSelected(
-    current: Float,
-    candidate: Float,
-): Boolean = kotlin.math.abs(current - candidate) < 0.08f
 
 private fun formatZoomLabel(
     zoom: Float,
-): String = if (zoom % 1f == 0f) "${zoom.toInt()}x" else "${zoom}x"
+): String {
+    val rounded = (zoom * 10f).roundToInt() / 10f
+    return if (rounded % 1f == 0f) "${rounded.toInt()}x" else "${rounded}x"
+}
 
 private fun updateExposure(
     controller: LifecycleCameraController,
