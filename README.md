@@ -37,6 +37,7 @@ This project was programmed by Marlo with help from OpenAI Codex.
 - `app/src/main/java/com/arquimea/dithercamera/camera/DitherProcessor.kt`: preview and capture processing pipeline
 - `app/src/main/java/com/arquimea/dithercamera/camera/DitherSettings.kt`: effect settings, presets, palettes, and patterns
 - `app/src/main/java/com/arquimea/dithercamera/camera/BitmapStorage.kt`: image saving and last-photo recovery
+- `docs/known-issues.md`: tracked device-specific and lifecycle-related limitations
 - `docs/v1-spec.md`: v1 scope and design notes
 
 ## Requirements
@@ -144,6 +145,7 @@ If you want signed GitHub release builds later, add your keystore as GitHub Acti
 ## Notes
 
 - Camera behavior varies slightly by device, especially around exposure ranges and lens switching.
+- Rotation and app resume can still desync `zoom`, `contrast`, and `exposure` on some devices. This has been present throughout development and is documented in [docs/known-issues.md](docs/known-issues.md).
 - Release builds are unsigned unless a local `keystore.properties` file is provided.
 - This repository does not currently include automated UI or image-quality tests.
 
