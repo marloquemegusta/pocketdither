@@ -1,38 +1,41 @@
-# Known Issues
+# Known issues
 
-## Rotation and resume can still desync zoom, contrast, and exposure
+PocketDither is usable on real Android devices, but some behavior still depends on camera hardware, CameraX implementation details, and lifecycle edge cases.
 
-Status: partially mitigated in `v1.0.3`, not fully fixed.
+## Rotation and app resume can desync some controls
 
-On some devices, especially foldables or phones with more complex camera stacks, rotating the phone or sending the app to the background and reopening it can still cause `zoom`, `contrast`, or `exposure` to jump back to a previous value.
+On some devices, rotating the phone or resuming the app from the background can still cause `zoom`, `contrast`, or `exposure` to momentarily drift from the last visible UI state.
 
-This issue has been present throughout the project, but it became more visible once manual zoom, edge sliders, and more aggressive state restoration were added to the UI.
+This has been partially mitigated, but not fully eliminated.
 
-### What appears to be happening
+Why it happens:
 
-The main cause seems to be a race between:
+- CameraX may rebind the preview and camera control state after orientation or lifecycle changes
+- Compose state and device camera state do not always reattach in exactly the same order
+- lens switching and per-device camera stacks introduce additional timing variability
 
-- Compose/UI state restoration
-- CameraX controller rebinding after orientation or lifecycle changes
-- Device camera state being reported again once the preview pipeline is recreated
+Current workaround:
 
-The result is that the UI may remember a value correctly, but CameraX or the device camera pipeline can overwrite part of that state a moment later.
+- verify zoom and exposure after a rotation or resume event
+- touching the control again usually reapplies the intended value cleanly
 
-### What was done in `v1.0.3`
+## Camera behavior is device-dependent
 
-- Removed the custom `configChanges` handling so Android can follow the standard recreation path
-- Kept `rememberSaveable` as the main source of truth for rotation/state restoration
-- Reduced preference-based restoration so disk state is mainly used for cold starts
-- Reapplied camera state on lifecycle restart in a more controlled way
+Lens switching, available zoom range, exposure compensation support, and flash behavior vary between Android devices. PocketDither uses the real camera capabilities exposed by CameraX, so the UI can behave slightly differently depending on the phone.
 
-This improves the behavior noticeably, but it does not completely eliminate the issue on every device.
+## Preview and saved capture are close, but not identical on every path
 
-### Current workaround
+The app is designed to keep preview and capture visually aligned, but exact parity is still affected by:
 
-- After rotating or reopening the app, quickly verify `zoom`, `contrast`, and `exposure`
-- If one of them looks wrong, touching its control once forces the intended value back into the pipeline
-- For the most predictable capture flow, avoid rotating the device while framing a critical shot
+- crop and scaling differences
+- device camera output behavior
+- internal processing resolution
+- camera state changes during capture
 
-### Planned long-term fix
+## Release artifacts may not always include a signed APK
 
-The next robust approach would be to move camera-control state into a dedicated `ViewModel` or state holder with an explicit CameraX rebind state machine, rather than relying on recomposition plus lifecycle callbacks alone.
+The repository supports release builds and GitHub Releases, but signed release APKs depend on local or CI signing configuration. If a release contains both debug and unsigned artifacts, the debug build is the directly installable fallback unless a signed APK is attached explicitly.
+
+## Older test builds may install as a separate app
+
+During repository cleanup, PocketDither moved to the neutral package id `com.marlo.pocketdither`. If you installed an older local/test APK before that cleanup, Android may treat the current build as a different app. Uninstalling older test builds before installing the latest APK avoids duplicate launcher entries.

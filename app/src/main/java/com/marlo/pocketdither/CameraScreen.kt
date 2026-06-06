@@ -1,4 +1,4 @@
-package com.arquimea.dithercamera
+package com.marlo.pocketdither
 
 import android.Manifest
 import android.content.Context
@@ -99,13 +99,13 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.arquimea.dithercamera.camera.BitmapStorage
-import com.arquimea.dithercamera.camera.ColorProfile
-import com.arquimea.dithercamera.camera.DitherPattern
-import com.arquimea.dithercamera.camera.DitherPreset
-import com.arquimea.dithercamera.camera.DitherPresets
-import com.arquimea.dithercamera.camera.DitherProcessor
-import com.arquimea.dithercamera.camera.DitherSettings
+import com.marlo.pocketdither.camera.BitmapStorage
+import com.marlo.pocketdither.camera.ColorProfile
+import com.marlo.pocketdither.camera.DitherPattern
+import com.marlo.pocketdither.camera.DitherPreset
+import com.marlo.pocketdither.camera.DitherPresets
+import com.marlo.pocketdither.camera.DitherProcessor
+import com.marlo.pocketdither.camera.DitherSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

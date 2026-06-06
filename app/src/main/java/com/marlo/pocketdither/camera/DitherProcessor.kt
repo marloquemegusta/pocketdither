@@ -1,4 +1,4 @@
-package com.arquimea.dithercamera.camera
+package com.marlo.pocketdither.camera
 
 import android.graphics.Bitmap
 import android.graphics.Color

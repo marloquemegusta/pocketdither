@@ -1,67 +1,73 @@
 # PocketDither
 
-PocketDither is a native Android camera app for live retro dithering. It shows a processed preview in real time, captures the photo with the same visual pipeline, and saves the result directly to the device.
+PocketDither is a native Android camera app that turns live photos into retro dithered images using editable console-inspired presets. It applies color, palette, and pixel-structure effects directly in the camera flow, then saves processed images to the device.
 
-This project was programmed by Marlo with help from OpenAI Codex.
+The project explores a small but specific idea: what does a modern phone camera feel like when it is pushed toward handheld retro devices, constrained color systems, and visible digital texture instead of clean realism?
 
-## What it does
+[![Latest Release](https://img.shields.io/github/v/release/marloquemegusta/pocketdither?display_name=tag)](https://github.com/marloquemegusta/pocketdither/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Android](https://img.shields.io/badge/android-native-brightgreen.svg)](https://developer.android.com/)
+[![Kotlin](https://img.shields.io/badge/kotlin-compose-blue.svg)](https://kotlinlang.org/)
 
-- Real-time processed camera preview using CameraX
-- Processed photo capture designed to match the preview as closely as possible
-- Color dithering plus curated retro presets
-- Editable controls for presets, palette, pixel size, detail, contrast, pattern, exposure, zoom, focus, and gallery access
-- Saved images in `Pictures/DitherCamera`
+## Visual Showcase
 
-## Current presets
+The examples below use the same ordered-dithering settings and retro palettes exposed by the app presets.
 
-- Full Color
-- Game Boy DMG
-- Game Boy Pocket
-- Macintosh
-- Virtual Boy
-- IBM CGA
-- Commodore 64
+| Original | Game Boy DMG |
+| --- | --- |
+| ![Original Don Quijote photo](docs/assets/examples/original-don-quijote.jpg) | ![Don Quijote photo processed with the Game Boy DMG preset](docs/assets/examples/gameboy-dmg-don-quijote.png) |
 
-## Tech stack
+| Game Boy Pocket | Macintosh | Commodore 64 |
+| --- | --- | --- |
+| ![Don Quijote photo processed with the Game Boy Pocket preset](docs/assets/examples/gameboy-pocket-don-quijote.png) | ![Don Quijote photo processed with the Macintosh preset](docs/assets/examples/macintosh-don-quijote.png) | ![Don Quijote photo processed with the Commodore 64 preset](docs/assets/examples/c64-don-quijote.png) |
 
-- Kotlin
-- Jetpack Compose
-- CameraX
-- MediaStore
-- Android SDK 35
-- Java 17
+| Virtual Boy | IBM CGA | Live Camera UI |
+| --- | --- | --- |
+| ![Don Quijote photo processed with the Virtual Boy preset](docs/assets/examples/virtual-boy-don-quijote.png) | ![Don Quijote photo processed with the IBM CGA preset](docs/assets/examples/ibm-cga-don-quijote.png) | ![PocketDither app running in an Android emulator](docs/assets/screenshots/app-emulator.png) |
 
-## Project structure
+## What It Does
 
-- `app/src/main/java/com/arquimea/dithercamera/CameraScreen.kt`: main camera UI and interaction layer
-- `app/src/main/java/com/arquimea/dithercamera/camera/DitherProcessor.kt`: preview and capture processing pipeline
-- `app/src/main/java/com/arquimea/dithercamera/camera/DitherSettings.kt`: effect settings, presets, palettes, and patterns
-- `app/src/main/java/com/arquimea/dithercamera/camera/BitmapStorage.kt`: image saving and last-photo recovery
-- `docs/known-issues.md`: tracked device-specific and lifecycle-related limitations
-- `docs/v1-spec.md`: v1 scope and design notes
+- Shows a processed camera preview in real time
+- Captures and saves a processed image with the same visual pipeline used by the preview
+- Supports color dithering rather than grayscale-only output
+- Includes editable retro presets inspired by Game Boy DMG, Game Boy Pocket, Macintosh, Virtual Boy, IBM CGA, and Commodore 64 graphics
+- Exposes controls for palette, pattern, pixel size, detail, contrast, exposure, zoom, flash, and focus
+- Saves processed images locally through MediaStore under `Pictures/DitherCamera`
 
-## Requirements
+## Installation
 
-- Android Studio Ladybug or newer, or a working Android SDK + JDK 17 setup
+Download the latest APK from [GitHub Releases](https://github.com/marloquemegusta/pocketdither/releases).
+
+Release assets may include:
+
+- `PocketDither-debug.apk`: installable debug build
+- `PocketDither-release-unsigned.apk`: unsigned release artifact for signing workflows
+
+If a signed release APK is not attached, use the debug APK for manual device testing.
+
+To install manually:
+
+1. Download the APK on your Android device, or transfer it from your computer.
+2. Open the APK.
+3. Allow installation from that source if Android asks.
+
+Current Android configuration:
+
+- `minSdk` 29
+- `targetSdk` 35
+- Android 10 or newer is required by the current project settings
+
+## Build From Source
+
+Requirements:
+
+- Android Studio or Android SDK command-line tools
+- JDK 17
 - Android SDK Platform 35
-- Android Build-Tools for API 35
-- Platform Tools (`adb`) if you want one-command device installs
+- Android Build Tools for API 35
+- Platform Tools if you want to install with `adb`
 
-If you installed Android Studio, its bundled JDK is enough. On Windows it is usually here:
-
-```powershell
-C:\Program Files\Android\Android Studio\jbr
-```
-
-## Open the project
-
-1. Clone the repository.
-2. Open the root folder in Android Studio.
-3. Let Gradle sync and install any missing SDK packages.
-
-## Build from the terminal
-
-PowerShell example on Windows:
+Build a debug APK on Windows:
 
 ```powershell
 $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
@@ -70,86 +76,111 @@ $env:GRADLE_USER_HOME="$PWD\.gradle"
 .\gradlew.bat assembleDebug
 ```
 
-Debug APK output:
+Output:
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Build a release APK
-
-Unsigned release APK:
-
-```powershell
-$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
-$env:GRADLE_USER_HOME="$PWD\.gradle"
-.\gradlew.bat assembleRelease
-```
-
-Unsigned release output:
-
-```text
-app/build/outputs/apk/release/app-release-unsigned.apk
-```
-
-For a signed installable release APK, copy `keystore.properties.example` to `keystore.properties`, fill it with your own values, and build again. The Gradle config will automatically sign `release` if that file is present.
-
-More detail is in [docs/release-signing.md](docs/release-signing.md).
-
-## Install on a device with adb
+Install and launch on a connected device:
 
 ```powershell
 $adb="$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 & $adb install -r .\app\build\outputs\apk\debug\app-debug.apk
-& $adb shell am start -n com.arquimea.dithercamera/.MainActivity
+& $adb shell am start -n com.marlo.pocketdither/.MainActivity
 ```
 
-## Helper scripts
-
-Fast local install on a connected phone:
+Or use the helper script:
 
 ```powershell
 .\scripts\install-debug.ps1
 ```
 
-Publish a meaningful update with build, commit, push, and tag-triggered GitHub release:
+For release signing, see [docs/release-signing.md](docs/release-signing.md).
 
-```powershell
-.\scripts\publish-release.ps1 -CommitMessage "Improve landscape controls and state persistence"
-```
+## Technical Overview
 
-If you want to choose the version yourself:
+PocketDither is a native Android project, not a web wrapper.
 
-```powershell
-.\scripts\publish-release.ps1 -CommitMessage "..." -Version v1.0.1
-```
+- Kotlin application code
+- Jetpack Compose UI
+- CameraX preview, analysis, focus, zoom, flash, exposure, and capture
+- CPU-side ordered dithering pipeline
+- Palette and preset definitions in Kotlin
+- MediaStore export for gallery-visible output
+- GitHub Actions for CI builds and tag-triggered release assets
 
-The publish script:
+Main implementation areas:
 
-- builds `debug` and `release`
-- stages and commits all changes
-- pushes the current branch
-- creates and pushes a `vMAJOR.MINOR.PATCH` tag
-- triggers the `Android Release` GitHub Action that attaches APKs to the GitHub release
+- `app/src/main/java/com/marlo/pocketdither/CameraScreen.kt`: camera UI, CameraX integration, controls, capture flow
+- `app/src/main/java/com/marlo/pocketdither/camera/DitherProcessor.kt`: image processing pipeline
+- `app/src/main/java/com/marlo/pocketdither/camera/DitherSettings.kt`: presets, palettes, and dither patterns
+- `app/src/main/java/com/marlo/pocketdither/camera/BitmapStorage.kt`: MediaStore saving and latest-image lookup
 
-## GitHub Actions
+Current architecture is intentionally compact. The main tradeoff is that `CameraScreen.kt` still owns a lot of camera/UI orchestration. A future cleanup would likely move camera-control state and processing settings into clearer state holders.
 
-The repository includes a workflow that builds both debug and release artifacts on every push to `main` and on pull requests. The workflow uploads:
+## AI-Assisted Development Methodology
 
-- `app-debug.apk`
-- `app-release-unsigned.apk`
+This project was built with an AI-assisted development workflow. I used AI coding tools as implementation support while retaining ownership over the product concept, UX direction, technical decisions, testing, debugging, evaluation, and release choices.
 
-If you want signed GitHub release builds later, add your keystore as GitHub Actions secrets and extend the workflow.
+Android is not my primary stack, and part of the project explores how a technical profile can responsibly build useful open-source tools outside their core implementation area with AI-assisted coding. The goal is not to present AI as an autopilot, but to show a practical workflow where AI accelerates implementation while human judgment remains responsible for scope, taste, validation, and quality.
 
-## Notes
+## Known Limitations
 
-- Camera behavior varies slightly by device, especially around exposure ranges and lens switching.
-- Rotation and app resume can still desync `zoom`, `contrast`, and `exposure` on some devices. This has been present throughout development and is documented in [docs/known-issues.md](docs/known-issues.md).
-- Release builds are unsigned unless a local `keystore.properties` file is provided.
-- This repository does not currently include automated UI or image-quality tests.
+PocketDither is a functional portfolio/open-source project, but it is not presented as production-grade camera software.
 
-## Credits
+- Camera behavior varies across Android devices.
+- Rotation and app resume can still desync zoom, contrast, or exposure on some phones.
+- Preview and capture are designed to look close, but are not guaranteed to be mathematically identical on every device path.
+- Release artifacts may include unsigned APKs unless signing is configured.
+- Earlier local/test builds used a previous package id, so installing current builds may require uninstalling older test versions first.
 
-- Product and implementation direction: Marlo
-- Development assistance and iteration support: OpenAI Codex
+More detail is tracked in [docs/known-issues.md](docs/known-issues.md).
+
+## Roadmap
+
+Near-term:
+
+- replace emulator UI screenshots with curated real-device captures
+- improve preview/capture parity
+- harden lifecycle, rotation, and device-specific camera behavior
+- refine the UI for different aspect ratios and foldables
+
+Future ideas:
+
+- add more dithering algorithms
+- expand the preset library
+- add before/after comparison views
+- improve export/gallery flow
+- add signed release publishing
+
+Non-goals for now:
+
+- cloud processing
+- social features
+- full photo-editor workflows
+- claims of device-wide production readiness
+
+## Contributing
+
+Contributions are welcome, especially around:
+
+- Android device compatibility
+- CameraX edge cases
+- image-processing performance
+- new palettes and presets
+- UI polish
+- preview/capture fidelity
+
+For larger changes, open an issue first so the scope stays aligned with the project.
+
+## Repository Notes
+
+- License: [MIT](LICENSE)
+- Release signing: [docs/release-signing.md](docs/release-signing.md)
+- Known issues: [docs/known-issues.md](docs/known-issues.md)
+- Local Android files such as `local.properties` and signing keys are ignored by Git
+
+## Acknowledgements
+
+PocketDither is built and maintained by Marlo, with AI-assisted implementation support from OpenAI Codex. It uses Android, Kotlin, Jetpack Compose, CameraX, and MediaStore.

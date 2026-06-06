@@ -1,4 +1,4 @@
-package com.arquimea.dithercamera.camera
+package com.marlo.pocketdither.camera
 
 data class DitherSettings(
     val pixelSize: Int = 6,

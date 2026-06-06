@@ -26,4 +26,4 @@ Write-Host "Installing APK..."
 & $AdbPath install -r $apkPath
 
 Write-Host "Launching app..."
-& $AdbPath shell am start -n com.arquimea.dithercamera/.MainActivity
+& $AdbPath shell am start -n com.marlo.pocketdither/.MainActivity

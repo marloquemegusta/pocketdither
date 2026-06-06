@@ -1,4 +1,4 @@
-package com.arquimea.dithercamera.ui.theme
+package com.marlo.pocketdither.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme

@@ -15,11 +15,11 @@ if (hasReleaseKeystore) {
 }
 
 android {
-    namespace = "com.arquimea.dithercamera"
+    namespace = "com.marlo.pocketdither"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.arquimea.dithercamera"
+        applicationId = "com.marlo.pocketdither"
         minSdk = 29
         targetSdk = 35
         versionCode = 4
